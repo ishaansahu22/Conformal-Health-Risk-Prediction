@@ -4,6 +4,10 @@ import numpy as np
 import joblib
 import matplotlib.pyplot as plt
 from src.conformal import run_conformal_prediction  
+
+# -------------------------------
+# Load Pretrained Models
+# -------------------------------
 models = {
     "Random Forest": joblib.load("models/random_forest.pkl"),
     "Logistic Regression": joblib.load("models/logistic_regression.pkl"),
@@ -11,15 +15,18 @@ models = {
     "XGBoost": joblib.load("models/xgboost.pkl"),
 }
 
+# Load Scaler for consistent preprocessing
+scaler = joblib.load("models/scaler.pkl")
+
 st.set_page_config(page_title="Conformal Health Risk Predictor", layout="wide")
 
 st.title("🫀 Conformal Health Risk Predictor")
 st.markdown("This app predicts **heart disease risk** using ML + Conformal Prediction for confidence intervals.")
 
+# Sidebar info
 st.sidebar.header("⚙️ Settings")
 model_choice = st.sidebar.selectbox("Choose a Model", list(models.keys()))
 
-st.sidebar.write("### About")
 st.sidebar.info(
     "✅ Trained on UCI Heart Disease dataset\n"
     "✅ Provides **risk probability** + **95% conformal interval**\n"
@@ -61,16 +68,12 @@ features = [
     "Thalassemia"
 ]
 
-# Default values
 if "inputs" not in st.session_state:
     st.session_state["inputs"] = [50, 1, 0, 130, 250, 0, 0, 150, 0, 2.5, 1, 0, 1]
 
 user_inputs = []
 
-# -------------------------------
-# Input fields with full names & dropdowns
-# -------------------------------
-age = st.number_input("Age of the person", min_value=1, max_value=120, value=st.session_state["inputs"][0], step=1)
+age = st.number_input("Age of the person", 1, 120, st.session_state["inputs"][0])
 user_inputs.append(age)
 
 sex = st.selectbox("Sex", [("Male", 1), ("Female", 0)],
@@ -85,12 +88,10 @@ cp = st.selectbox("Chest Pain Type", [
 ], index=st.session_state["inputs"][2])[1]
 user_inputs.append(cp)
 
-trestbps = st.number_input("Resting Blood Pressure (mm Hg)", min_value=50, max_value=250,
-                           value=st.session_state["inputs"][3], step=1)
+trestbps = st.number_input("Resting Blood Pressure (mm Hg)", 50, 250, st.session_state["inputs"][3])
 user_inputs.append(trestbps)
 
-chol = st.number_input("Serum Cholesterol (mg/dl)", min_value=100, max_value=600,
-                       value=st.session_state["inputs"][4], step=1)
+chol = st.number_input("Serum Cholesterol (mg/dl)", 100, 600, st.session_state["inputs"][4])
 user_inputs.append(chol)
 
 fbs = st.selectbox("Fasting Blood Sugar > 120 mg/dl", [("True", 1), ("False", 0)],
@@ -104,16 +105,15 @@ restecg = st.selectbox("Resting ECG Results", [
 ], index=st.session_state["inputs"][6])[1]
 user_inputs.append(restecg)
 
-thalach = st.number_input("Maximum Heart Rate Achieved", min_value=60, max_value=250,
-                          value=st.session_state["inputs"][7], step=1)
+thalach = st.number_input("Maximum Heart Rate Achieved", 60, 250, st.session_state["inputs"][7])
 user_inputs.append(thalach)
 
 exang = st.selectbox("Exercise Induced Angina", [("Yes", 1), ("No", 0)],
                      index=0 if st.session_state["inputs"][8] == 1 else 1)[1]
 user_inputs.append(exang)
 
-oldpeak = st.number_input("ST Depression Induced by Exercise", min_value=0.0, max_value=10.0,
-                          value=float(st.session_state["inputs"][9]), step=0.1, format="%.1f")
+oldpeak = st.number_input("ST Depression Induced by Exercise", 0.0, 10.0,
+                          float(st.session_state["inputs"][9]), 0.1, format="%.1f")
 user_inputs.append(oldpeak)
 
 slope = st.selectbox("Slope of Peak Exercise ST Segment", [
@@ -123,8 +123,7 @@ slope = st.selectbox("Slope of Peak Exercise ST Segment", [
 ], index=st.session_state["inputs"][10])[1]
 user_inputs.append(slope)
 
-ca = st.number_input("Number of Major Vessels (0–3)", min_value=0, max_value=3,
-                     value=st.session_state["inputs"][11], step=1)
+ca = st.number_input("Number of Major Vessels (0–3)", 0, 3, st.session_state["inputs"][11])
 user_inputs.append(ca)
 
 thal = st.selectbox("Thalassemia", [
@@ -141,30 +140,35 @@ if st.button("Predict Risk"):
     model = models[model_choice]
     X = np.array(user_inputs).reshape(1, -1)
 
+    # ✅ Apply same scaling as training
+    X_scaled = scaler.transform(X)
+
     # Model probability
-    prob = model.predict_proba(X)[0][1] * 100
+    risk_prob = model.predict_proba(X_scaled)[0][1] * 100  # class 1 = disease
 
-    # Conformal prediction interval (corrected call)
-    lower, upper = run_conformal_prediction(model, X)
+    # Conformal interval
+    lower, upper = run_conformal_prediction(model, X_scaled)
+    lower = float(np.array(lower).flatten()[0])
+    upper = float(np.array(upper).flatten()[0])
 
-    # Risk category
-    if prob < 30:
+    # Risk Category
+    if risk_prob < 30:
         risk_color, risk_label = "green", "Low Risk"
-    elif prob < 60:
+    elif risk_prob < 60:
         risk_color, risk_label = "orange", "Moderate Risk"
     else:
         risk_color, risk_label = "red", "High Risk"
 
-    # Show result
+    # Display Results
     st.markdown(
         f"### 🧾 Prediction: <span style='color:{risk_color};font-weight:bold'>{risk_label}</span>",
         unsafe_allow_html=True
     )
-    st.write(f"**Risk Probability:** {prob:.2f}%")
-    st.write(f"**95% Confidence Interval:** {np.mean(lower):.2f}% – {np.mean(upper):.2f}%")
+    st.write(f"**Risk Probability:** {risk_prob:.2f}%")
+    st.write(f"**95% Confidence Interval:** {lower:.2f}% – {upper:.2f}%")
 
     # -------------------------------
-    # Visualization (Bar Chart)
+    # Visualization
     # -------------------------------
     st.subheader("📊 Patient Profile vs Normal Range")
     normal_ranges = {
@@ -186,9 +190,9 @@ if st.button("Predict Risk"):
     # Download Report
     # -------------------------------
     report_df = pd.DataFrame([user_inputs], columns=features)
-    report_df["Predicted Risk"] = prob
+    report_df["Predicted Risk (%)"] = risk_prob
     report_df["Risk Category"] = risk_label
-    report_df["Confidence Interval"] = f"{lower:.2f}–{upper:.2f}"
+    report_df["Confidence Interval"] = f"{lower:.2f} – {upper:.2f}"
 
     csv = report_df.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download Patient Report (CSV)", csv, "patient_report.csv", "text/csv")
