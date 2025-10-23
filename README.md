@@ -1,5 +1,5 @@
 
-# Conformal Health Risk Predictor
+# RiskBound AI
 
 ## Description
 
